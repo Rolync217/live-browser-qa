@@ -1,71 +1,135 @@
 # live-browser-qa
 
-A [Claude Code](https://claude.ai/code) skill that drives a real, visible Chrome for UI testing — no test scripts to write, no Selenium boilerplate, no pixel coordinates. Tell Claude what to test; it figures out the rest from the live page.
+A browser QA skill for AI coding agents — Claude Code, Codex CLI, Cursor, Windsurf, or any agent that can run bash and Node.js.
 
-## Who is this for?
+Tell your agent what to test. It drives a real, visible Chrome you can watch. No test scripts to write. No selectors to maintain.
 
-**Solo devs and indie hackers** who want Claude Code to verify that their UI actually works — without maintaining a Playwright test suite.
+---
 
-Specifically useful if you:
-- Build web apps and want to manually QA flows (login, forms, dashboards) without writing tests
-- Use Claude Code to ship features and want it to verify the golden path before you call it done
-- Have hit the Chrome 136+ CDP error (`DevTools remote debugging requires a non-default data directory`) and lost hours debugging it
-- Need to test scroll animations (GSAP ScrollTrigger, Framer Motion) and want them tested correctly — with real wheel events, not instant jumps that lie
+## What agent is this for?
 
-**Not for:** teams running CI pipelines or needing headless automation at scale. This is for you watching Chrome do the thing while Claude drives it.
+Any of them.
+
+The skill is a set of instructions + working code that any coding agent can follow. The packaging differs by agent:
+
+| Agent | How to use this skill |
+|---|---|
+| **Claude Code** | `git clone` into `~/.claude/skills/live-browser-qa/` — auto-triggers on "test this", "verify the flow", etc. |
+| **Codex CLI** | Copy the relevant sections into your `AGENTS.md`, or tell Codex to follow the steps in `SKILL.md` |
+| **Cursor / Windsurf** | Add the setup + automation blocks to your agent rules, or paste `SKILL.md` into context |
+| **Any other agent** | The bash setup block and Node.js automation block are self-contained — any agent that can run them can drive the browser |
+
+---
 
 ## What it does
 
-- Launches a dedicated QA Chrome alongside your normal one — separate profile, doesn't touch your browsing
-- Handles the Chrome 136+ CDP block automatically (the `--user-data-dir` fix)
-- Attaches Playwright over CDP and interacts by element meaning: `getByRole('button', { name: 'Sign in' })` — not brittle CSS selectors
+- Detects whether your regular Chrome is open and prompts you to quit it — it will never auto-close Chrome or kill your tabs
+- Launches a dedicated QA Chrome with a persistent profile at `~/chrome-qa-profile`
+- On first run, pauses and prompts you to log into any accounts your app needs for OAuth — once done, the session persists forever
+- Attaches Playwright over CDP and drives the browser by element meaning: `getByRole('button', { name: 'Sign in' })` — not brittle CSS selectors
 - Screenshots after every step so you see exactly what happened
-- Tests scroll-linked animations correctly using real mouse wheel events (Framer Motion `useScroll`, GSAP ScrollTrigger, Lenis — these all lie on instant `window.scrollTo` jumps)
+- Tests scroll animations correctly using real mouse wheel events (Framer Motion, GSAP ScrollTrigger, Lenis all lie on instant `window.scrollTo` jumps)
 - Falls back to puppeteer-core if your Playwright version hits a known CDP context bug
 
-## Install
+---
 
-```bash
-git clone https://github.com/Rolync217/live-browser-qa ~/.claude/skills/live-browser-qa
-```
+## Full workflow (what actually happens)
 
-That's it. Claude Code auto-discovers skills in `~/.claude/skills/`. Available immediately in your next session.
+**Step 1 — you tell your agent what to test**
+> "Test the login flow" / "Verify the dashboard loads after sign-in" / "Check the signup form"
 
-### Staying up to date
+**Step 2 — agent runs the setup script**
 
-Chrome updates and edge cases get fixed as they're found. Pull updates any time:
+The script checks port 9222 for an existing QA Chrome session. If none:
 
-```bash
-git -C ~/.claude/skills/live-browser-qa pull
-```
+- It checks if regular Chrome is running
+- If Chrome IS open: the script exits with a warning and the agent tells you: *"Chrome is currently open — please quit it (Cmd+Q) and let me know when you're ready."* Your tabs are safe. Nothing is auto-closed.
+- Once Chrome is quit: the agent relaunches setup
 
-## Usage
+**Step 3 — QA Chrome launches**
 
-In Claude Code, just describe what you want tested in plain language:
+Launched via the Chrome binary directly (not `open -na`), so it reliably starts as a separate instance with CDP enabled on port 9222. It opens alongside wherever your app is running.
 
-- *"Test the login flow"*
-- *"Verify the dashboard loads after sign-in"*
-- *"Check if the signup form validates email correctly"*
-- *"Show me the onboarding flow working"*
+**Step 4 — first-run login (once, ever)**
 
-Or invoke explicitly with `/live-browser-qa`.
+If `~/chrome-qa-profile` has never been used, the agent pauses and tells you: *"This is the first run. If your app uses Google OAuth or any saved login, please log into those accounts in the QA Chrome window now. Come back when done."*
 
-## The problem it solves
+You log in manually in the visible QA Chrome window. From that point forward, every test run reuses that session — cookies, OAuth tokens, everything.
 
-Chrome 136+ blocks `--remote-debugging-port` for any profile inside the default Chrome directory. The error:
+**Step 5 — automation runs**
+
+The agent attaches Playwright over CDP, navigates to your app, and drives it by role and label — not by CSS class or position. It waits for each action to land before the next one, screenshots meaningful steps, and reports pass/fail with the screenshots as evidence.
+
+**Step 6 — QA Chrome stays open**
+
+`browser.close()` in Playwright only detaches the CDP client — it does not quit Chrome. The QA Chrome window stays open. Next test run skips setup entirely and reattaches.
+
+---
+
+## Why a persistent separate Chrome profile?
+
+Two reasons this matters:
+
+**Reason 1: Google OAuth**
+
+A fresh Playwright browser (no profile, no cookies) hits Google's login wall every single time and dies. Google actively blocks automated login on clean sessions. There's no way around it without a browser that's already authenticated.
+
+A persistent profile at `~/chrome-qa-profile` — outside Chrome's default directory — lets you log in once. Every test after that reuses the live session. OAuth flows complete normally because Chrome already has your credentials.
+
+**Reason 2: Chrome 136+ blocks CDP on the default profile**
+
+Chrome 136 added a restriction: `--remote-debugging-port` is blocked for any profile inside `~/Library/Application Support/Google/Chrome/`. Error:
 
 ```
 DevTools remote debugging requires a non-default data directory
 ```
 
-...is cryptic, the StackOverflow answers don't cover it, and it breaks every guide on CDP-based automation. The fix is a persistent dedicated QA profile at `~/chrome-qa-profile` outside the default dir. This skill handles that automatically.
+Every guide online misses this. The fix is the same persistent external profile — it sidesteps both problems at once.
+
+---
+
+## Install
+
+### Claude Code
+
+```bash
+git clone https://github.com/Rolync217/live-browser-qa ~/.claude/skills/live-browser-qa
+```
+
+Done. Claude Code auto-discovers skills in `~/.claude/skills/`. Triggers on "test this", "verify the flow", "show me it working", or explicitly via `/live-browser-qa`.
+
+### Codex CLI / Cursor / Windsurf / other agents
+
+Clone the repo anywhere:
+
+```bash
+git clone https://github.com/Rolync217/live-browser-qa ~/live-browser-qa
+```
+
+Then either:
+- Copy the contents of `SKILL.md` into your `AGENTS.md` / agent rules file
+- Or tell your agent: *"Follow the instructions in `~/live-browser-qa/SKILL.md` to set up and run browser QA"*
+
+### Staying up to date
+
+Chrome version changes and edge cases get fixed as they're found:
+
+```bash
+git -C ~/.claude/skills/live-browser-qa pull
+# or wherever you cloned it:
+git -C ~/live-browser-qa pull
+```
+
+---
 
 ## Requirements
 
 - macOS or Linux
-- Google Chrome 136+
+- Google Chrome installed
 - Node.js
-- Claude Code
+- Any AI coding agent
+
+---
 
 ## License
 
