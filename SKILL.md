@@ -147,13 +147,88 @@ await page.type('input[type="email"]', 'test@example.com', { delay: 80 });
 browser.disconnect();
 ```
 
+## Fallback 2: Vision + raw CDP (when both libraries fail)
+
+If Playwright and puppeteer-core both fail, drop all library dependencies entirely.
+Use raw WebSocket CDP to screenshot the page, let the agent read the image and identify
+coordinates visually, then send mouse events directly via CDP.
+
+**No npm packages needed — just Node's built-in fetch and the `ws` package (one install).**
+
+```bash
+cd /tmp && npm install ws 2>/dev/null
+```
+
+```javascript
+// Step 1: take a screenshot via raw CDP
+const { createRequire } = await import('module');
+const require = createRequire(import.meta.url);
+const WebSocket = require('/tmp/node_modules/ws');
+const fs = require('fs');
+
+const v = await fetch('http://127.0.0.1:9222/json').then(r => r.json());
+const target = v.find(t => t.type === 'page' && t.url.includes('localhost'));
+const ws = new WebSocket(target.webSocketDebuggerUrl);
+
+let msgId = 1;
+const send = (method, params = {}) => new Promise(resolve => {
+  const id = msgId++;
+  const handler = (data) => {
+    const msg = JSON.parse(data);
+    if (msg.id === id) { ws.off('message', handler); resolve(msg.result); }
+  };
+  ws.on('message', handler);
+  ws.send(JSON.stringify({ id, method, params }));
+});
+
+await new Promise(r => ws.once('open', r));
+
+// Navigate if needed
+await send('Page.navigate', { url: 'http://localhost:3000/login' });
+await new Promise(r => setTimeout(r, 2000));
+
+// Screenshot → agent reads the PNG and identifies coordinates
+const { data } = await send('Page.captureScreenshot', { format: 'png' });
+fs.writeFileSync('/tmp/qa_vision.png', Buffer.from(data, 'base64'));
+// → Read /tmp/qa_vision.png now. Identify the x,y of the element to interact with.
+
+// Step 2: type into a field at coordinates the agent identified from the image
+const x = 640, y = 310;   // agent fills these in from the screenshot
+await send('Input.dispatchMouseEvent', { type: 'mousePressed', x, y, button: 'left', clickCount: 1 });
+await send('Input.dispatchMouseEvent', { type: 'mouseReleased', x, y, button: 'left', clickCount: 1 });
+
+// Type text character by character
+for (const char of 'test@example.com') {
+  await send('Input.dispatchKeyEvent', { type: 'keyDown', text: char });
+  await send('Input.dispatchKeyEvent', { type: 'keyUp', text: char });
+}
+
+// Step 3: screenshot again to verify the result
+await new Promise(r => setTimeout(r, 1000));
+const { data: data2 } = await send('Page.captureScreenshot', { format: 'png' });
+fs.writeFileSync('/tmp/qa_vision_after.png', Buffer.from(data2, 'base64'));
+// → Read /tmp/qa_vision_after.png to confirm the action landed
+
+ws.close();
+```
+
+**How the vision loop works:**
+1. Screenshot the page → `Read /tmp/qa_vision.png`
+2. Agent looks at the image, identifies pixel coordinates of the target element
+3. Dispatch mouse/keyboard events at those coordinates via CDP
+4. Screenshot again to verify → repeat until the flow completes
+
+This is the last resort — coordinate-based interaction breaks if the layout changes.
+Use Playwright or puppeteer-core whenever possible. Use this only when both fail.
+
 ## Standard QA loop
 
 1. Setup (launch QA Chrome if down) — separate step, before any automation
-2. Attach, navigate, act (fill / click / submit) — by role/label/text
-3. `waitFor` / `waitForURL` after every action — never assume it landed
-4. Screenshot after each meaningful step → Read the PNG to show the user
-5. Report pass/fail per step with the screenshot as evidence
+2. Try Playwright first → fall back to puppeteer-core → fall back to vision + raw CDP
+3. Attach, navigate, act (fill / click / submit)
+4. `waitFor` / `waitForURL` after every action — never assume it landed
+5. Screenshot after each meaningful step → Read the PNG to show the user
+6. Report pass/fail per step with the screenshot as evidence
 
 ## Verifying scroll-linked animations (scroll-scrub, pinned reveals)
 
