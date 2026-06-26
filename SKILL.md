@@ -12,7 +12,16 @@ description: Use when asked to test, verify, or QA any web app UI in a real visi
 
 Drive a real, visible Chrome the user watches. Attach Playwright over CDP, interact by element meaning (role, label, text) — no pixel coordinates, no test scripts to maintain. You say what to test, the skill figures out the rest from the live page.
 
-> **Platform note:** Setup commands use macOS (`open -na "Google Chrome"`). On Linux, replace with `google-chrome` or `chromium`. The Playwright/Node steps work on both.
+> **Platform note:** Setup commands use macOS. On Linux, replace the binary path with `google-chrome` or `chromium`. The Playwright/Node steps work on both.
+
+## Works with any agent — not just Claude Code
+
+The code in this skill is plain Node.js and bash. Any AI agent that can run shell commands can follow it.
+
+- **Claude Code** — drop `SKILL.md` into `~/.claude/skills/live-browser-qa/` and it auto-triggers
+- **Codex CLI** — paste the relevant setup + automation blocks into your `AGENTS.md`, or tell Codex to follow the steps in this file
+- **Cursor / Windsurf / any IDE agent** — same: reference this file in your agent rules or paste the blocks directly into context
+- **Any other agent** — the setup bash block and the Node.js automation block are self-contained; any agent that can run them can drive the browser
 
 ## The one thing that makes this work: a dedicated QA Chrome
 
@@ -25,23 +34,51 @@ The fix: a **persistent custom `--user-data-dir` outside** the default folder. L
 ## Setup (idempotent — run every time, it's a no-op if already up)
 
 ```bash
-# Is the QA Chrome already up with CDP?
 if curl -s http://127.0.0.1:9222/json/version >/dev/null 2>&1; then
-  echo "QA Chrome already running"
+  echo "QA Chrome already running on port 9222"
 else
+  # If regular Chrome is open, it must be quit first.
+  # macOS: open -na doesn't reliably spawn a separate instance when Chrome is already running.
+  # Launching via the binary directly is the only reliable way.
+  if pgrep -f "Google Chrome" >/dev/null 2>&1; then
+    echo "⚠️  Chrome is currently open. Please quit Chrome (Cmd+Q on Mac) and run this again."
+    echo "    The QA Chrome must launch as its own instance with CDP enabled."
+    exit 1
+  fi
+
+  # Launch QA Chrome via binary (works even if Chrome was recently running)
   # macOS:
-  open -na "Google Chrome" --args \
+  /Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome \
     --remote-debugging-port=9222 \
     --user-data-dir="$HOME/chrome-qa-profile" \
     --no-first-run --no-default-browser-check \
-    "http://localhost:3000"
+    "about:blank" &>/dev/null &
   # Linux: google-chrome --remote-debugging-port=9222 --user-data-dir="$HOME/chrome-qa-profile" &
-  sleep 6
-  curl -s http://127.0.0.1:9222/json/version | python3 -m json.tool | grep Browser
+
+  sleep 5
+  curl -s http://127.0.0.1:9222/json/version | python3 -m json.tool | grep Browser \
+    || echo "CDP not ready — wait a few more seconds and retry"
+
+  # First-run login check: if the QA profile has never been used for OAuth,
+  # the user must log in manually before automation continues.
+  PROFILE_COOKIES="$HOME/chrome-qa-profile/Default/Cookies"
+  if [ ! -f "$PROFILE_COOKIES" ]; then
+    echo ""
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo "FIRST RUN — action required:"
+    echo "The QA Chrome window just opened with a fresh profile."
+    echo "If your test uses Google OAuth or any saved login:"
+    echo "  → Go to the QA Chrome window"
+    echo "  → Log into the account(s) your app uses for OAuth"
+    echo "  → Come back here and confirm when done"
+    echo "This only happens once. The session persists forever."
+    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+    echo ""
+    echo "Press Enter when you've logged in (or if this test doesn't need OAuth)..."
+    read -r
+  fi
 fi
 ```
-
-**First-ever run:** the QA dir has no Google session. If the test needs Gmail / "Continue with Google", tell the user: "Log into Google in the QA Chrome window once — it'll persist for all future runs." Email/password tests need no login.
 
 ### Hard rule: never kill or relaunch Chrome while a script is running
 
@@ -142,6 +179,7 @@ await pause(1500); // let smooth-scroll + animation settle
 
 ## Common mistakes (all learned the hard way)
 
+- **Regular Chrome is open when you run setup** → `open -na` on macOS won't reliably spawn a separate instance with CDP flags when Chrome is already running. Quit Chrome first (`Cmd+Q`), then run setup. The script checks for this and exits with a warning.
 - **Using `--profile-directory="Profile N"`** → Chrome blocks CDP on default-dir profiles. Use `--user-data-dir` outside the default folder. No exceptions.
 - **Killing/relaunching Chrome mid-script** → page closes, `Target closed`. Launch once in setup, never during automation.
 - **Expecting the user's normal Chrome to be CDP-attachable** → it isn't (launched without the port, and it's a default-dir profile). The QA Chrome is a separate dedicated instance.
