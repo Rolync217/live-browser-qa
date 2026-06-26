@@ -147,13 +147,18 @@ await page.type('input[type="email"]', 'test@example.com', { delay: 80 });
 browser.disconnect();
 ```
 
-## Fallback 2: Vision + raw CDP (when both libraries fail)
+## Fallback 2: Vision + raw CDP (the universal layer)
 
-If Playwright and puppeteer-core both fail, drop all library dependencies entirely.
-Use raw WebSocket CDP to screenshot the page, let the agent read the image and identify
-coordinates visually, then send mouse events directly via CDP.
+If Playwright and puppeteer-core both fail, this always works — no library version to
+conflict, no npm cache to be empty, no Playwright install required. The agent looks at
+the rendered page exactly like a human does, identifies what to click by sight, and
+sends the input directly via CDP.
 
-**No npm packages needed — just Node's built-in fetch and the `ws` package (one install).**
+The tradeoff vs Playwright: if the visual layout changes significantly, coordinates need
+to be re-identified. But the mechanism itself never breaks — as long as the page is
+visible and the agent can read a screenshot, it can drive the browser.
+
+**Only requires the `ws` package — one install, no Playwright, no puppeteer.**
 
 ```bash
 cd /tmp && npm install ws 2>/dev/null
@@ -218,8 +223,8 @@ ws.close();
 3. Dispatch mouse/keyboard events at those coordinates via CDP
 4. Screenshot again to verify → repeat until the flow completes
 
-This is the last resort — coordinate-based interaction breaks if the layout changes.
-Use Playwright or puppeteer-core whenever possible. Use this only when both fail.
+Use Playwright when you want semantic selectors that survive refactors.
+Use this when you want something that always runs regardless of what's installed.
 
 ## Standard QA loop
 
