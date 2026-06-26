@@ -107,7 +107,7 @@ await page.bringToFront();
 await page.goto('http://localhost:3000/login');
 await page.getByLabel('Email').fill('test@example.com');
 await page.getByLabel('Password').fill('password123');
-await page.getByRole('button', { name: 'Sign in' }).click();
+await page.locator('form').getByRole('button', { name: 'Sign in' }).click(); // scope to form — pages with a tab toggle also have a "Sign in" tab button
 await page.waitForURL('**/dashboard**', { timeout: 12000 });
 
 const banner = await page.getByText('welcome').isVisible().catch(() => false);
@@ -122,12 +122,15 @@ Run it: `node --input-type=module <<'SCRIPT' ... SCRIPT` with `PW=$PW` exported,
 ### Element selectors — by meaning, not position
 
 ```javascript
+page.locator('form').getByRole('button', { name: 'Sign in' }) // scope when name is ambiguous (tab toggle + submit)
 page.getByRole('button', { name: 'Update password' })
 page.getByLabel('New password')
 page.getByText('Password updated')
 page.getByRole('link', { name: 'Settings' })
 await locator.waitFor({ timeout: 5000 })   // always wait before asserting
 ```
+
+**Strict mode gotcha:** Playwright throws if a locator matches more than one element. If a button name appears on both a tab toggle AND a submit button, scope it: `page.locator('form').getByRole('button', { name: '...' })`. Always verify with `.count()` if unsure.
 
 ## Fallback: puppeteer-core
 
