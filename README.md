@@ -26,7 +26,7 @@ Specifically useful if you:
 ## Install
 
 ```bash
-git clone https://github.com/anandabhinav/live-browser-qa ~/.claude/skills/live-browser-qa
+git clone https://github.com/Rolync217/live-browser-qa ~/.claude/skills/live-browser-qa
 ```
 
 That's it. Claude Code auto-discovers skills in `~/.claude/skills/`. Available immediately in your next session.
