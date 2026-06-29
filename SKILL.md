@@ -37,16 +37,9 @@ The fix: a **persistent custom `--user-data-dir` outside** the default folder. L
 if curl -s http://127.0.0.1:9222/json/version >/dev/null 2>&1; then
   echo "QA Chrome already running on port 9222"
 else
-  # If regular Chrome is open, it must be quit first.
-  # macOS: open -na doesn't reliably spawn a separate instance when Chrome is already running.
-  # Launching via the binary directly is the only reliable way.
-  if pgrep -f "Google Chrome" >/dev/null 2>&1; then
-    echo "⚠️  Chrome is currently open. Please quit Chrome (Cmd+Q on Mac) and run this again."
-    echo "    The QA Chrome must launch as its own instance with CDP enabled."
-    exit 1
-  fi
-
-  # Launch QA Chrome via binary (works even if Chrome was recently running)
+  # Launch QA Chrome via binary with a separate --user-data-dir.
+  # Chrome's single-instance check is per user-data-dir, so this runs
+  # alongside any existing regular Chrome window — no need to quit it first.
   # macOS:
   /Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome \
     --remote-debugging-port=9222 \
@@ -86,11 +79,13 @@ The #1 cause of `Target page... has been closed` is churning Chrome mid-run. Lau
 
 ## Driving it (Playwright — primary)
 
-Playwright `connectOverCDP` works against this Chrome. Resolve the npx-cached playwright (no local install needed):
+Playwright `connectOverCDP` works against this Chrome. Resolve playwright (tries common locations, no local install needed):
 
 ```bash
 PW=$(ls -td ~/.npm/_npx/*/node_modules/playwright 2>/dev/null | head -1)
-# if empty: npx playwright install chromium  (downloads the driver once)
+# nvm-based installs (e.g. @playwright/mcp):
+[ -z "$PW" ] && PW=$(ls ~/.nvm/versions/node/*/lib/node_modules/@playwright/mcp/node_modules/playwright/index.js 2>/dev/null | head -1)
+# if still empty: npx playwright install chromium  (downloads the driver once)
 ```
 
 ```javascript
@@ -262,7 +257,7 @@ await pause(1500); // let smooth-scroll + animation settle
 
 ## Common mistakes (all learned the hard way)
 
-- **Regular Chrome is open when you run setup** → `open -na` on macOS won't reliably spawn a separate instance with CDP flags when Chrome is already running. Quit Chrome first (`Cmd+Q`), then run setup. The script checks for this and exits with a warning.
+- **Thinking you need to quit regular Chrome first** → you don't. Chrome's single-instance check is per `--user-data-dir`. Since QA Chrome uses `~/chrome-qa-profile` (outside the default dir), it launches as a separate instance alongside your normal Chrome. No quit needed.
 - **Using `--profile-directory="Profile N"`** → Chrome blocks CDP on default-dir profiles. Use `--user-data-dir` outside the default folder. No exceptions.
 - **Killing/relaunching Chrome mid-script** → page closes, `Target closed`. Launch once in setup, never during automation.
 - **Expecting the user's normal Chrome to be CDP-attachable** → it isn't (launched without the port, and it's a default-dir profile). The QA Chrome is a separate dedicated instance.
