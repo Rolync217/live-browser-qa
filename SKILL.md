@@ -34,44 +34,12 @@ The fix: a **persistent custom `--user-data-dir` outside** the default folder. L
 ## Setup (idempotent — run every time, it's a no-op if already up)
 
 ```bash
-if curl -s http://127.0.0.1:9222/json/version >/dev/null 2>&1; then
-  echo "QA Chrome already running on port 9222"
-else
-  # Launch QA Chrome via binary with a separate --user-data-dir.
-  # Chrome's single-instance check is per user-data-dir, so this runs
-  # alongside any existing regular Chrome window — no need to quit it first.
-  # macOS:
-  /Applications/Google\ Chrome.app/Contents/MacOS/Google\ Chrome \
-    --remote-debugging-port=9222 \
-    --user-data-dir="$HOME/chrome-qa-profile" \
-    --no-first-run --no-default-browser-check \
-    "about:blank" &>/dev/null &
-  # Linux: google-chrome --remote-debugging-port=9222 --user-data-dir="$HOME/chrome-qa-profile" &
-
-  sleep 5
-  curl -s http://127.0.0.1:9222/json/version | python3 -m json.tool | grep Browser \
-    || echo "CDP not ready — wait a few more seconds and retry"
-
-  # First-run login check: if the QA profile has never been used for OAuth,
-  # the user must log in manually before automation continues.
-  PROFILE_COOKIES="$HOME/chrome-qa-profile/Default/Cookies"
-  if [ ! -f "$PROFILE_COOKIES" ]; then
-    echo ""
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo "FIRST RUN — action required:"
-    echo "The QA Chrome window just opened with a fresh profile."
-    echo "If your test uses Google OAuth or any saved login:"
-    echo "  → Go to the QA Chrome window"
-    echo "  → Log into the account(s) your app uses for OAuth"
-    echo "  → Come back here and confirm when done"
-    echo "This only happens once. The session persists forever."
-    echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
-    echo ""
-    echo "Press Enter when you've logged in (or if this test doesn't need OAuth)..."
-    read -r
-  fi
-fi
+bash sys/chrome-launch.sh
 ```
+
+`sys/chrome-launch.sh` launches QA Chrome on port 9222 with a dedicated profile
+(`~/chrome-qa-profile`). Safe to re-run — exits immediately if already up. Runs
+alongside any existing regular Chrome window, no need to quit it first.
 
 ### Hard rule: never kill or relaunch Chrome while a script is running
 
