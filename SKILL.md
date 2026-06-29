@@ -23,6 +23,29 @@ The code in this skill is plain Node.js and bash. Any AI agent that can run shel
 - **Cursor / Windsurf / any IDE agent** — same: reference this file in your agent rules or paste the blocks directly into context
 - **Any other agent** — the setup bash block and the Node.js automation block are self-contained; any agent that can run them can drive the browser
 
+## sys/ scripts (use these directly — no copy-pasting needed)
+
+| Script | What it does |
+|---|---|
+| `sys/chrome-launch.sh` | Start QA Chrome on port 9222. Safe to re-run. |
+| `sys/screenshot.js` | Capture the current tab (or a URL) as PNG. |
+
+```bash
+# Start Chrome
+bash sys/chrome-launch.sh
+
+# Screenshot whatever is open right now
+node sys/screenshot.js --out /tmp/step1.png
+
+# Screenshot a specific URL (reuses tab if already open)
+node sys/screenshot.js --url https://yourapp.com/login --out /tmp/login.png
+
+# Full page height
+node sys/screenshot.js --full --out /tmp/full.png
+```
+
+---
+
 ## The one thing that makes this work: a dedicated QA Chrome
 
 Chrome 136+ **blocks `--remote-debugging-port` for any profile inside the default Chrome directory** (`~/Library/Application Support/Google/Chrome/`). Error: `DevTools remote debugging requires a non-default data directory`. So you CANNOT CDP-attach to the user's normal Chrome or any profile in it.
@@ -76,6 +99,7 @@ await page.waitForURL('**/dashboard**', { timeout: 12000 });
 const banner = await page.getByText('welcome').isVisible().catch(() => false);
 console.log('Banner:', banner);
 
+// Screenshot — or call sys/screenshot.js from bash for a one-liner
 await page.screenshot({ path: '/tmp/qa_step.png' });   // then Read it to show the user
 await browser.close();   // close() detaches; it does NOT quit the user's Chrome
 ```
